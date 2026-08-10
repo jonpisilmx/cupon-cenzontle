@@ -94,6 +94,25 @@
       line-height: 1.4;
     }
 
+    .validity-box {
+      margin-bottom: 18px;
+      font-size: 0.85rem;
+      color: #d97706;
+      font-weight: 700;
+      background-color: #fffbe8;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #fef3c7;
+    }
+
+    .validity-timer {
+      font-size: 1.05rem;
+      color: #2b2b2b;
+      font-weight: 800;
+      margin-top: 4px;
+      display: block;
+    }
+
     .btn {
       background-color: #2b2b2b;
       color: #ffffff;
@@ -186,8 +205,14 @@
       <p>Uso único, el cupón tiene una duración de 30 segundos una vez abierto, actívalo para mostrárselo a tu mesero.</p>
     </div>
 
-    <!-- Pantalla Inicial: Botones de Acción -->
+    <!-- Pantalla Inicial: Botones de Acción y Reloj de Vigencia -->
     <div id="sec-inicio">
+      <!-- Contador con días/horas/minutos que resta de vigencia en Agosto -->
+      <div class="validity-box">
+        ⏳ Tiempo restante de vigencia:
+        <span id="vigencia-reloj" class="validity-timer">Calculando...</span>
+      </div>
+
       <button class="btn" onclick="activarCupon()">Activar Cupón</button>
       
       <button class="btn btn-share" onclick="compartirWhatsApp()">
@@ -203,7 +228,7 @@
       </a>
     </div>
 
-    <!-- Pantalla Activa: Temporizador -->
+    <!-- Pantalla Activa: Temporizador de 30 Segundos -->
     <div id="sec-activo" class="hidden">
       <p style="font-size: 0.85rem; color: #6b7280; text-transform: uppercase;">Muestra esta pantalla a tu mesero</p>
       <div id="timer" class="timer-display">00:30</div>
@@ -218,18 +243,13 @@
   </div>
 
   <script>
-    const DURACION_MS = 30 * 1000; 
+    // Configuración general
+    const FECHA_FIN_VIGENCIA = new Date('2026-08-31T23:59:59').getTime(); 
+    const DURACION_ACTIVADO_MS = 30 * 1000; // 30 segundos
     const CLAVE_STORAGE = 'cenzontle_cupon_expiracion';
     const CLAVE_FOLIO = 'cenzontle_cupon_folio';
 
-    // Validación de fecha: Solo válido en Agosto 2026
-    const ANO_VALIDO = 2026;
-    const MES_VALIDO = 7; // Agosto en JavaScript (0 = Enero, 7 = Agosto)
-
-    function esFechaValida() {
-      const ahora = new Date();
-      return ahora.getFullYear() === ANO_VALIDO && ahora.getMonth() === MES_VALIDO;
-    }
+    let intervaloVigencia = null;
 
     function obtenerOGenerarFolio() {
       let folio = localStorage.getItem(CLAVE_FOLIO);
@@ -244,40 +264,74 @@
       const folio = obtenerOGenerarFolio();
       document.getElementById('folio-num').textContent = folio;
 
-      // Primer filtro: Verificar vigencia por fecha de calendario
-      if (!esFechaValida()) {
-        mostrarExpirado("Este cupón venció (Válido únicamente en Agosto de 2026)");
+      const ahora = Date.now();
+
+      // 1. Verificar si ya venció el mes de Agosto de 2026
+      if (ahora > FECHA_FIN_VIGENCIA) {
+        mostrarExpirado("Este cupón venció (Válido únicamente hasta el 31 de Agosto de 2026)");
         return;
       }
 
-      // Segundo filtro: Estado del temporizador
+      // 2. Verificar si el cupón ya fue activado previamente
       const expiracionGuardada = localStorage.getItem(CLAVE_STORAGE);
       if (expiracionGuardada) {
-        evaluarEstado(parseInt(expiracionGuardada, 10));
+        evaluarEstadoActivado(parseInt(expiracionGuardada, 10));
+      } else {
+        // Iniciar el reloj de días/horas/minutos restantes del mes
+        iniciarContadorVigencia();
+      }
+    }
+
+    function iniciarContadorVigencia() {
+      actualizarRelojVigencia();
+      intervaloVigencia = setInterval(actualizarRelojVigencia, 1000);
+    }
+
+    function actualizarRelojVigencia() {
+      const ahora = Date.now();
+      const faltante = FECHA_FIN_VIGENCIA - ahora;
+
+      if (faltante <= 0) {
+        clearInterval(intervaloVigencia);
+        mostrarExpirado("Este cupón venció (Válido únicamente hasta el 31 de Agosto de 2026)");
+        return;
+      }
+
+      const dias = Math.floor(faltante / (1000 * 60 * 60 * 24));
+      const horas = Math.floor((faltante % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutos = Math.floor((faltante % (1000 * 60 * 60)) / (1000 * 60));
+      const segundos = Math.floor((faltante % (1000 * 60)) / 1000);
+
+      const elVigencia = document.getElementById('vigencia-reloj');
+      if (elVigencia) {
+        elVigencia.textContent = `${dias}d ${horas}h ${minutos}m ${segundos}s`;
       }
     }
 
     function activarCupon() {
-      if (!esFechaValida()) {
-        mostrarExpirado("Este cupón venció (Válido únicamente en Agosto de 2026)");
+      if (Date.now() > FECHA_FIN_VIGENCIA) {
+        mostrarExpirado("Este cupón venció (Válido únicamente hasta el 31 de Agosto de 2026)");
         return;
       }
-      const tiempoExpiracion = Date.now() + DURACION_MS;
+
+      if (intervaloVigencia) clearInterval(intervaloVigencia);
+
+      const tiempoExpiracion = Date.now() + DURACION_ACTIVADO_MS;
       localStorage.setItem(CLAVE_STORAGE, tiempoExpiracion);
-      evaluarEstado(tiempoExpiracion);
+      evaluarEstadoActivado(tiempoExpiracion);
     }
 
-    function evaluarEstado(tiempoExpiracion) {
+    function evaluarEstadoActivado(tiempoExpiracion) {
       const faltante = tiempoExpiracion - Date.now();
 
       if (faltante <= 0) {
-        mostrarExpirado();
+        mostrarExpirado("Este cupón ya fue utilizado / expiró");
       } else {
-        mostrarTemporizador(tiempoExpiracion);
+        mostrarTemporizadorUso(tiempoExpiracion);
       }
     }
 
-    function mostrarTemporizador(tiempoExpiracion) {
+    function mostrarTemporizadorUso(tiempoExpiracion) {
       document.getElementById('sec-inicio').classList.add('hidden');
       document.getElementById('sec-expirado').classList.add('hidden');
       document.getElementById('sec-activo').classList.remove('hidden');
@@ -287,7 +341,7 @@
 
         if (faltante <= 0) {
           clearInterval(intervalo);
-          mostrarExpirado();
+          mostrarExpirado("Este cupón ya fue utilizado / expiró");
         } else {
           const segundos = Math.ceil(faltante / 1000);
           const formatoSegundos = segundos < 10 ? `0${segundos}` : segundos;
@@ -296,12 +350,12 @@
       }, 1000);
     }
 
-    function mostrarExpirado(mensajePersonalizado) {
+    function mostrarExpirado(mensaje) {
       document.getElementById('sec-inicio').classList.add('hidden');
       document.getElementById('sec-activo').classList.add('hidden');
       
-      if (mensajePersonalizado) {
-        document.getElementById('expired-message').textContent = mensajePersonalizado;
+      if (mensaje) {
+        document.getElementById('expired-message').textContent = mensaje;
       }
       
       document.getElementById('sec-expirado').classList.remove('hidden');
